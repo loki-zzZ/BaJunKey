@@ -1,0 +1,31 @@
+//
+//  carkeyApp.swift
+//  carkey
+//
+//  Created by Shilapi Chen on 9/8/25.
+//
+
+import SwiftUI
+import Foundation
+import OSLog
+
+let logger = Logger(
+	subsystem: "com.sleepyshark.carkey",
+	category: "main"
+)
+
+@main
+struct carkeyApp: App {
+    init() {
+        WatchSyncManager.shared.startSession()
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            MainTabView()
+				.environmentObject(DataManager.shared)
+                .environmentObject(BluetoothManager.shared)
+        }
+    }
+}
+
