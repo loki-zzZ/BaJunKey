@@ -48,6 +48,12 @@ enum BaojunEndpoint {
     // 一个带有请求体的 POST 接口，例如发送车辆控制命令
     case queryBleKey(vin: String, userId: String)
     
+    // 胎压查询
+    case queryTirePressure(vin: String)
+    
+    // 云端控制：闪灯寻车 / 启动点火授权
+    case controlSearchCar(vin: String)
+    case controlIgnitionAuth(vin: String)
 }
 
 extension BaojunEndpoint: EndpointType {
@@ -57,6 +63,12 @@ extension BaojunEndpoint: EndpointType {
             return "/junApi/sgmw/userCarRelation/queryDefaultCarStatus"
         case .queryBleKey(vin: _, userId: _):
             return "/junApi/sgmw/car/control/ble/key/query"
+        case .queryTirePressure:
+            return "/junApi/sgmw/car/info/tire/pressure"
+        case .controlSearchCar:
+            return "/junApi/sgmw/car/control/searchCar"
+        case .controlIgnitionAuth:
+            return "/junApi/sgmw/car/control/ignition/authorize"
         }
     }
     
@@ -65,7 +77,7 @@ extension BaojunEndpoint: EndpointType {
         switch self {
         case .queryDefaultCarStatus:
             return "POST"
-        case .queryBleKey:
+        case .queryBleKey, .queryTirePressure, .controlSearchCar, .controlIgnitionAuth:
             return "POST"
         }
     }
@@ -77,6 +89,27 @@ extension BaojunEndpoint: EndpointType {
             return nil
         case .queryBleKey(let vin, let userId):
             return ["vin": vin, "userId": userId]
+        case .queryTirePressure(let vin), .controlSearchCar(let vin), .controlIgnitionAuth(let vin):
+            return ["vin": vin]
+        }
+    }
+}
+
+// MARK: - 云端控制反馈（供界面 toast 显示）
+
+final class ControlFeedback: ObservableObject {
+    static let shared = ControlFeedback()
+    private init() {}
+    @Published var message: String?
+    @Published var isSuccess: Bool = false
+
+    func report(_ msg: String, success: Bool) {
+        DispatchQueue.main.async {
+            self.message = msg
+            self.isSuccess = success
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            if self.message == msg { self.message = nil }
         }
     }
 }
@@ -198,13 +231,8 @@ extension DataManager {
     }
 
     func fetchAndLoadKeyData() {
-        
-        // 1. 调用你的 NetworkManager 发起请求
-		NetworkManager.shared.requestBaojun(BaojunEndpoint.queryBleKey(vin: DataManager.shared.appData.carData?.carInfo.vin ?? "", userId: DataManager.shared.appData.userData?.userID ?? "")) { [weak self] result in
-            
-            // 确保在主线程处理后续逻辑，因为会更新 @Published 属性
+        NetworkManager.shared.requestBaojun(BaojunEndpoint.queryBleKey(vin: DataManager.shared.appData.carData?.carInfo.vin ?? "", userId: DataManager.shared.appData.userData?.userID ?? "")) { [weak self] result in
             DispatchQueue.main.async {
-                
                 switch result {
                     case .success(let data):
                         if let responseString = String(data: data, encoding: .utf8) {
@@ -216,6 +244,64 @@ extension DataManager {
                 }
             }
         }
+    }
+
+    func fetchAndLoadTireData() {
+        guard let vin = DataManager.shared.appData.carData?.carInfo.vin, !vin.isEmpty else { return }
+        NetworkManager.shared.requestBaojun(BaojunEndpoint.queryTirePressure(vin: vin)) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let data):
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        self?.loadTireData(from: responseString)
+                    }
+                case .failure(let error):
+                    loggerNet.error("failed to load tire data: \(error)")
+                }
+            }
+        }
+    }
+
+    /// 云端控制通用下发：result=true 视为成功
+    private func sendCloudCommand(endpoint: BaojunEndpoint, successText: String) {
+        NetworkManager.shared.requestBaojun(endpoint) { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let data):
+                    guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        ControlFeedback.shared.report("服务器响应解析失败", success: false)
+                        return
+                    }
+                    if json["result"] as? Bool == true {
+                        ControlFeedback.shared.report(successText, success: true)
+                    } else {
+                        let msg = json["errorMessage"] as? String ?? "指令被服务器拒绝"
+                        ControlFeedback.shared.report(msg, success: false)
+                    }
+                case .failure(let error):
+                    loggerNet.error("cloud control failed: \(error)")
+                    ControlFeedback.shared.report("网络请求失败: \(error.localizedDescription)", success: false)
+                }
+            }
+        }
+    }
+
+    private func currentVin() -> String? {
+        guard let vin = DataManager.shared.appData.carData?.carInfo.vin, !vin.isEmpty else {
+            ControlFeedback.shared.report("还没有车辆信息，先下拉刷新一次", success: false)
+            return nil
+        }
+        return vin
+    }
+
+    func sendSearchCar() {
+        guard let vin = currentVin() else { return }
+        sendCloudCommand(endpoint: .controlSearchCar(vin: vin), successText: "已下发寻车指令，车辆会闪灯鸣笛")
+    }
+
+    func sendIgnitionAuth() {
+        guard let vin = currentVin() else { return }
+        sendCloudCommand(endpoint: .controlIgnitionAuth(vin: vin), successText: "已下发启动点火授权")
     }
 }
 

@@ -34,6 +34,7 @@ struct CarControlsView: View {
 					BatteryHeroCard(dataManager: dataManager)
 					StatusGrid(dataManager: dataManager)
 					VehicleStateChips(dataManager: dataManager)
+					TirePressureCard(dataManager: dataManager)
 					ControlSection(bt: bt)
 					CarLocationView()
 					FooterInfo(dataManager: dataManager)
@@ -45,7 +46,12 @@ struct CarControlsView: View {
 			.refreshable {
 				DataManager.shared.fetchAndLoadCarData()
 				DataManager.shared.fetchAndLoadKeyData()
+				DataManager.shared.fetchAndLoadTireData()
 			}
+		}
+		.overlay(alignment: .bottom) {
+			ControlToast()
+			.padding(.bottom, 10)
 		}
 		.preferredColorScheme(.dark)
 	}
@@ -356,11 +362,131 @@ struct VehicleStateChips: View {
 	}
 }
 
+// MARK: - Tire pressure card
+
+struct TirePressureCard: View {
+	@ObservedObject var dataManager: DataManager
+
+	private var wheels: [(String, String, String)] {
+		let t = dataManager.appData.tireData
+		return [
+			("左前", t?.lfTirPrsVal, t?.lfTirPrStat),
+			("右前", t?.rfTirPrsVal, t?.rfTirPrStat),
+			("左后", t?.lrTirPrsVal, t?.lrTirPrStat),
+			("右后", t?.rrTirPrsVal, t?.rrTirPrStat)
+		].map { ($0.0, $0.1 ?? "--", $0.2 ?? "0") }
+	}
+
+	var body: some View {
+		VStack(alignment: .leading, spacing: 10) {
+			HStack(spacing: 8) {
+				Image(systemName: "gauge.with.needle")
+					.font(.system(size: 15))
+					.foregroundColor(Color(hex: 0x64D2FF))
+				Text("胎压监测")
+					.font(.headline)
+					.foregroundColor(.white)
+				Spacer()
+				if let temp = dataManager.appData.tireData?.tirTemp, !temp.isEmpty {
+					Text("胎温 \(temp)°C")
+						.font(.caption)
+						.foregroundColor(.white.opacity(0.6))
+				}
+			}
+			if dataManager.appData.tireData == nil {
+				Text("暂无胎压数据（车型不支持或未刷新）")
+					.font(.caption)
+					.foregroundColor(.white.opacity(0.35))
+					.frame(maxWidth: .infinity, alignment: .center)
+					.padding(.vertical, 10)
+			} else {
+				HStack(spacing: 8) {
+					ForEach(wheels, id: \.0) { w in
+						TireWheelCell(label: w.0, pressure: w.1, stat: w.2)
+					}
+				}
+			}
+		}
+		.padding(16)
+		.background(
+			RoundedRectangle(cornerRadius: 22)
+				.fill(Color.white.opacity(0.07))
+		)
+		.overlay(
+			RoundedRectangle(cornerRadius: 22)
+				.stroke(Color.white.opacity(0.10), lineWidth: 1)
+		)
+	}
+}
+
+struct TireWheelCell: View {
+	let label: String
+	let pressure: String
+	let stat: String
+
+	private var color: Color {
+		switch stat {
+		case "0": return Color(hex: 0x30D158)
+		case "1": return .orange
+		case "2": return .red
+		default: return .white.opacity(0.6)
+		}
+	}
+
+	var body: some View {
+		VStack(spacing: 5) {
+			ZStack {
+				Circle().stroke(color.opacity(0.25), lineWidth: 5)
+				Image(systemName: "car.fill")
+					.font(.system(size: 15))
+					.foregroundColor(color)
+			}
+			.frame(width: 42, height: 42)
+			Text(pressure)
+				.font(.system(size: 15, weight: .bold, design: .rounded))
+				.foregroundColor(.white)
+			Text(label)
+				.font(.caption2)
+				.foregroundColor(.white.opacity(0.45))
+		}
+		.frame(maxWidth: .infinity)
+		.padding(.vertical, 10)
+		.background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.06)))
+	}
+}
+
+// MARK: - Control toast
+
+struct ControlToast: View {
+	@ObservedObject var fb = ControlFeedback.shared
+
+	var body: some View {
+		if let msg = fb.message {
+			HStack(spacing: 8) {
+				Image(systemName: fb.isSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+					.foregroundColor(fb.isSuccess ? Color(hex: 0x30D158) : .orange)
+				Text(msg)
+					.font(.footnote.weight(.medium))
+					.foregroundColor(.white)
+			}
+			.padding(.horizontal, 16)
+			.padding(.vertical, 12)
+			.background(
+				Capsule().fill(Color(red: 0.12, green: 0.14, blue: 0.20).opacity(0.95))
+			)
+			.overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
+			.transition(.move(edge: .bottom).combined(with: .opacity))
+			.animation(.easeInOut(duration: 0.25), value: fb.message)
+		}
+	}
+}
+
 // MARK: - BLE control section
 
 struct ControlSection: View {
 	@ObservedObject var bt: BluetoothManager
 	@State private var isLocked = true
+	@State private var showIgnitionConfirm = false
 
 	private var bleReady: Bool {
 		if case .connected = bt.state { return true }
@@ -393,6 +519,26 @@ struct ControlSection: View {
 				}
 			}
 
+			HStack(spacing: 10) {
+				SquareControlButton(
+					icon: "light.beacon.max.fill",
+					label: "闪灯寻车",
+					color: Color(hex: 0x64D2FF)
+				) {
+					simpleHaptic(type: .light)
+					DataManager.shared.sendSearchCar()
+				}
+
+				SquareControlButton(
+					icon: "flame.fill",
+					label: "启动点火",
+					color: Color(hex: 0xFFD60A)
+				) {
+					simpleHaptic(type: .medium)
+					showIgnitionConfirm = true
+				}
+			}
+
 			Button(action: {
 				simpleHaptic(type: .warning)
 				BluetoothManager.shared.CarPowerOff()
@@ -409,6 +555,48 @@ struct ControlSection: View {
 			.opacity(bleReady ? 1.0 : 0.4)
 		}
 		.padding(.top, 4)
+		.confirmationDialog(
+			"确认远程启动点火？",
+			isPresented: $showIgnitionConfirm,
+			titleVisibility: .visible
+		) {
+			Button("确认启动", role: .destructive) {
+				DataManager.shared.sendIgnitionAuth()
+			}
+			Button("取消", role: .cancel) {}
+		} message: {
+			Text("将通过云端下发启动授权指令")
+		}
+	}
+}
+
+struct SquareControlButton: View {
+	let icon: String
+	let label: String
+	let color: Color
+	let action: () -> Void
+
+	var body: some View {
+		Button(action: action) {
+			VStack(spacing: 7) {
+				Image(systemName: icon)
+					.font(.system(size: 21, weight: .medium))
+					.foregroundColor(color)
+				Text(label)
+					.font(.caption.weight(.semibold))
+					.foregroundColor(.white)
+			}
+			.frame(maxWidth: .infinity)
+			.padding(.vertical, 16)
+			.background(
+				RoundedRectangle(cornerRadius: 16)
+					.fill(color.opacity(0.14))
+			)
+			.overlay(
+				RoundedRectangle(cornerRadius: 16)
+					.stroke(color.opacity(0.4), lineWidth: 1.5)
+			)
+		}
 	}
 }
 

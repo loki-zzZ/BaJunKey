@@ -374,6 +374,11 @@ struct MainTabView: View {
 					Label("车辆", systemImage: "car.fill")
 				}
 
+			VehicleDetailView()
+				.tabItem {
+					Label("详情", systemImage: "list.bullet.rectangle.fill")
+				}
+
 			UserInfoView()
 				.tabItem {
 					Label("我的", systemImage: "person.fill")

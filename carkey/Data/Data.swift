@@ -146,11 +146,25 @@ struct CarInfo: Codable {
     }
 }
 
+// MARK: - 胎压数据
+struct TireData: Codable {
+    let collectTime: String?
+    let tirTemp: String?
+    let lfTirPrsVal, rfTirPrsVal, lrTirPrsVal, rrTirPrsVal: String?
+    let lfTirPrStat, rfTirPrStat, lrTirPrStat, rrTirPrStat: String?
+}
+
+struct TireAPIResponse: Decodable {
+    let result: Bool
+    let data: TireData?
+}
+
 // MARK: - ????屎山
 struct AppData: Codable {
 	var userData: UserData?
 	var carKeyData: CarKeyData?
 	var carData: CarData?
+	var tireData: TireData?
 }
 
 class DataManager: ObservableObject {
@@ -252,6 +266,24 @@ extension DataManager {
         }
     }
 	
+    /// 从JSON加载并更新胎压数据（部分车型不支持，解析失败静默处理）
+    func loadTireData(from jsonString: String) {
+        guard let jsonData = jsonString.data(using: .utf8) else { return }
+        do {
+            let apiResponse = try JSONDecoder().decode(TireAPIResponse.self, from: jsonData)
+            guard apiResponse.result, let tire = apiResponse.data else {
+                loggerData.error("tire pressure query rejected by server")
+                return
+            }
+            DispatchQueue.main.async {
+                self.appData.tireData = tire
+                loggerData.debug("tire pressure loaded")
+            }
+        } catch {
+            loggerData.error("failed to parse tire data (车型可能不支持): \(error.localizedDescription)")
+        }
+    }
+
 	func updateKeyDataToBtKeyModel() {
 		guard let keyData = self.appData.carKeyData else {
 			loggerData.error("failed to update key data to ble key model")
