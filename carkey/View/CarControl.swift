@@ -137,7 +137,6 @@ struct InfoIndicator: View {
 					.foregroundColor(state.color)
 					.frame(width: 50, height: 50)
 			}
-			.glassEffect()
 			.popover(isPresented: $isShowingDetail, attachmentAnchor: .point(.leading), arrowEdge: .trailing) {
 				StatusDetailView(state: state)
 					.presentationCompactAdaptation(.popover)
@@ -291,7 +290,6 @@ struct PrimaryControlsView: View {
 						.padding()
 				}
 				.disabled(controlDisabled)
-				.glassEffect(.regular.tint(shouldShowBlue ? Color.clear : Color.blue).interactive())
 				.scaleEffect(isLocked ? 0.95 : 1.0)
 				
 				// 锁定按钮
@@ -307,7 +305,6 @@ struct PrimaryControlsView: View {
 						.padding()
 				}
 				.disabled(controlDisabled)
-				.glassEffect(.regular.tint(shouldShowBlue ? Color.blue : Color.clear).interactive())
 				.scaleEffect(shouldShowBlue ? 1.0 : 0.95)
 			}
 			.animation(.spring(), value: isLocked)
@@ -377,7 +374,6 @@ struct ActionGridView: View {
 				ActionGroupView(title: "车门控制", actions: secondaryActions)
 			}
 			.padding()
-			.glassEffect(in: .rect(cornerRadius: 20), )
 		} else {
 			VStack(spacing: 15) {
 				// 第一组操作
@@ -460,7 +456,6 @@ struct CarLocationView: View {
 				.padding(.bottom, 5)
 			}
 			.padding()
-			.glassEffect(in: .rect(cornerRadius: 20))
 		} else {
 			VStack(spacing: 15) {
 				Text("车辆位置")
