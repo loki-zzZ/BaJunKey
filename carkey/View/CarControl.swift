@@ -525,7 +525,7 @@ struct ControlSection: View {
 					label: "闪灯寻车",
 					color: Color(hex: 0x64D2FF)
 				) {
-					simpleHaptic(type: .light)
+					simpleImpact(style: .light)
 					DataManager.shared.sendSearchCar()
 				}
 
