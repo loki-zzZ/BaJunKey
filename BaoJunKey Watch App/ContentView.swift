@@ -91,7 +91,6 @@ struct ContentView: View {
                         Image(systemName: "lock.open.fill")
                             .font(.title2)
                 }
-				.buttonSizing(.automatic)
                 .disabled(btManager.state != .connected)
 
                 Button {
