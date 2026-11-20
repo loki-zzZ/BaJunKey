@@ -534,7 +534,7 @@ struct ControlSection: View {
 					label: "启动点火",
 					color: Color(hex: 0xFFD60A)
 				) {
-					simpleHaptic(type: .medium)
+					simpleImpact(style: .medium)
 					showIgnitionConfirm = true
 				}
 			}
