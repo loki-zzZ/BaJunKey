@@ -2,66 +2,514 @@
 //  CarControl.swift
 //  carkey
 //
-//  Created by Shilapi Chen on 9/29/25.
+//  Redesigned dashboard UI (iOS 17+)
 //
 
 import SwiftUI
 import MapKit
 
+// MARK: - Root
+
 struct CarControlsView: View {
-	@State private var isConnected = true
-	@State private var isLocked = true
-	@State var dataManager = DataManager.shared
-	
+	@ObservedObject var dataManager = DataManager.shared
+	@ObservedObject var bt = BluetoothManager.shared
+
 	var body: some View {
-		NavigationView {
-			ZStack {
-				// 更简洁的背景
-				LinearGradient(
-					gradient: Gradient(colors: [Color.black, Color.gray.opacity(0.6)]),
-					startPoint: .top,
-					endPoint: .bottom
-				).ignoresSafeArea()
-				
-				ScrollView {
-					VStack(spacing: 20) {
-						// 1. 顶部状态栏
-						HeaderView(isConnected: $isConnected)
-						
-						// 2. 车辆视觉展示
-						CarDisplayView().frame(
-							height: 170
-						)
-						
-						// 3. 核心控制区 (锁定/解锁)
-						PrimaryControlsView(isLocked: $isLocked)
-						
-						// 4. 分组功能网格
-						ActionGridView()
-						
-						CarLocationView()
-						
-						ApiStatusView(error: nil, lastUpdateTime: dataManager.appData.carData?.updateDate ?? "从未更新")
-						
-						Spacer()
-					}
-					.padding()
+		ZStack {
+			// 深色渐变背景
+			LinearGradient(
+				gradient: Gradient(colors: [
+					Color(red: 0.07, green: 0.09, blue: 0.14),
+					Color(red: 0.10, green: 0.12, blue: 0.20),
+					Color(red: 0.05, green: 0.06, blue: 0.10)
+				]),
+				startPoint: .topLeading,
+				endPoint: .bottomTrailing
+			).ignoresSafeArea()
+
+			ScrollView {
+				VStack(spacing: 16) {
+					DashboardHeader(bt: bt)
+					CarImageSection(dataManager: dataManager)
+					BatteryHeroCard(dataManager: dataManager)
+					StatusGrid(dataManager: dataManager)
+					VehicleStateChips(dataManager: dataManager)
+					ControlSection(bt: bt)
+					CarLocationView()
+					FooterInfo(dataManager: dataManager)
+					Spacer(minLength: 20)
 				}
-				.refreshable {
-					DataManager.shared.fetchAndLoadCarData()
-				}
+				.padding(.horizontal, 16)
+				.padding(.top, 8)
 			}
-			.navigationBarHidden(true)
+			.refreshable {
+				DataManager.shared.fetchAndLoadCarData()
+				DataManager.shared.fetchAndLoadKeyData()
+			}
 		}
 		.preferredColorScheme(.dark)
 	}
 }
 
+// MARK: - Header
+
+struct DashboardHeader: View {
+	@ObservedObject var bt: BluetoothManager
+	@State private var scanningTask: Task<Void, Error>?
+
+	private func startScanningLoop() {
+		guard scanningTask == nil else { return }
+		scanningTask = Task.detached {
+			while !Task.isCancelled {
+				BluetoothManager.shared.startScan()
+				try await Task.sleep(for: .seconds(9))
+			}
+		}
+	}
+
+	private func stopScanningLoop() {
+		scanningTask?.cancel()
+		scanningTask = nil
+	}
+
+	private var bleColor: Color {
+		switch bt.state {
+		case .connected: return .green
+		case .authorizing: return .orange
+		case .scanning: return .yellow
+		default: return .red
+		}
+	}
+
+	private var bleText: String {
+		switch bt.state {
+		case .connected: return "蓝牙已连接"
+		case .authorizing: return "蓝牙认证中"
+		case .scanning: return "蓝牙扫描中"
+		case .disconnected: return "蓝牙未连接"
+		case .unknown: return "蓝牙异常"
+		}
+	}
+
+	var body: some View {
+		HStack(alignment: .top) {
+			VStack(alignment: .leading, spacing: 6) {
+				Text(DataManager.shared.appData.carData?.carInfo.carName ?? "我的车辆")
+					.font(.system(size: 26, weight: .bold))
+					.foregroundColor(.white)
+				Text(DataManager.shared.appData.carData?.carInfo.model ?? "下拉刷新获取车辆信息")
+					.font(.subheadline)
+					.foregroundColor(.white.opacity(0.55))
+			}
+			Spacer()
+			HStack(spacing: 6) {
+				Circle()
+					.fill(bleColor)
+					.frame(width: 8, height: 8)
+					.shadow(color: bleColor, radius: 4)
+				Text(bleText)
+					.font(.caption)
+					.foregroundColor(.white.opacity(0.7))
+			}
+			.padding(.horizontal, 12)
+			.padding(.vertical, 8)
+			.background(Color.white.opacity(0.08))
+			.clipShape(Capsule())
+			.onAppear(perform: startScanningLoop)
+			.onDisappear(perform: stopScanningLoop)
+		}
+		.padding(.top, 6)
+		.onTapGesture {
+			BluetoothManager.shared.startScan()
+		}
+	}
+}
+
+// MARK: - Car image
+
+struct CarImageSection: View {
+	@ObservedObject var dataManager: DataManager
+
+	var body: some View {
+		Group {
+			if let path = dataManager.appData.carData?.carInfo.image,
+			   !path.isEmpty, let url = URL(string: path) {
+				AsyncImage(url: url) { phase in
+					switch phase {
+					case .success(let image):
+						image.resizable().scaledToFit()
+					default:
+						PlaceholderCarImage()
+					}
+				}
+			} else {
+				PlaceholderCarImage()
+			}
+		}
+		.frame(height: 150)
+		.frame(maxWidth: .infinity)
+	}
+}
+
+struct PlaceholderCarImage: View {
+	var body: some View {
+		VStack(spacing: 10) {
+			Image(systemName: "car.fill")
+				.font(.system(size: 44))
+				.foregroundColor(.white.opacity(0.25))
+			Text("下拉刷新加载车辆数据")
+				.font(.caption)
+				.foregroundColor(.white.opacity(0.4))
+		}
+		.frame(maxWidth: .infinity, maxHeight: .infinity)
+	}
+}
+
+// MARK: - Battery hero card
+
+struct BatteryHeroCard: View {
+	@ObservedObject var dataManager: DataManager
+
+	private var soc: Int? {
+		dataManager.appData.carData?.carStatus.batterySOCPercentage
+	}
+	private var rangeKm: Int? {
+		dataManager.appData.carData?.carStatus.remainingMileage
+	}
+	private var isCharging: Bool {
+		let s = dataManager.appData.carData?.carStatus
+		return s?.vecChrgingSts == "1" || s?.charging == "1"
+	}
+	private var totalKm: String {
+		let raw = dataManager.appData.carData?.carStatus.mileage ?? ""
+		guard let v = Double(raw) else { return "--" }
+		return v >= 10000
+			? String(format: "%.1f 万", v / 10000)
+			: String(format: "%.0f", v)
+	}
+
+	var body: some View {
+		HStack(spacing: 18) {
+			// 电量圆环
+			ZStack {
+				Circle()
+					.stroke(Color.white.opacity(0.10), lineWidth: 12)
+				Circle()
+					.trim(from: 0, to: Double(soc ?? 0) / 100.0)
+					.stroke(
+						AngularGradient(
+							colors: [(soc ?? 0) <= 20 ? Color.orange : Color(hex: 0x34C759),
+									 Color(hex: 0x30D158), Color(hex: 0x64D2FF)],
+							center: .center,
+							startAngle: .degrees(-90),
+							endAngle: .degrees(270)
+						),
+						style: StrokeStyle(lineWidth: 12, lineCap: .round)
+					)
+					.rotationEffect(.degrees(-90))
+					.animation(.easeInOut, value: soc)
+				VStack(spacing: 2) {
+					Text(soc != nil ? "\(soc!)" : "--")
+						.font(.system(size: 30, weight: .heavy, design: .rounded))
+						.foregroundColor(.white)
+					Text("%")
+						.font(.caption2)
+						.foregroundColor(.white.opacity(0.5))
+				}
+			}
+			.frame(width: 104, height: 104)
+
+			VStack(alignment: .leading, spacing: 8) {
+				HStack(spacing: 6) {
+					Image(systemName: isCharging ? "bolt.fill" : "battery.75percent")
+						.font(.system(size: 13))
+						.foregroundColor(isCharging ? Color(hex: 0xFFD60A) : Color(hex: 0x30D158))
+					Text(isCharging ? "充电中" : "未在充电")
+						.font(.caption)
+						.foregroundColor(.white.opacity(0.7))
+				}
+				HStack(alignment: .firstTextBaseline, spacing: 4) {
+					Text(rangeKm != nil ? "\(rangeKm!)" : "--")
+						.font(.system(size: 34, weight: .heavy, design: .rounded))
+						.foregroundColor(.white)
+					Text("km")
+						.font(.subheadline)
+						.foregroundColor(.white.opacity(0.5))
+				}
+				Text("剩余续航")
+					.font(.caption)
+					.foregroundColor(.white.opacity(0.45))
+				Divider().overlay(Color.white.opacity(0.12))
+				Text("总里程 \(totalKm) km")
+					.font(.footnote)
+					.foregroundColor(.white.opacity(0.6))
+			}
+			Spacer()
+		}
+		.padding(18)
+		.background(
+			RoundedRectangle(cornerRadius: 22)
+				.fill(Color.white.opacity(0.07))
+		)
+		.overlay(
+			RoundedRectangle(cornerRadius: 22)
+				.stroke(Color.white.opacity(0.10), lineWidth: 1)
+		)
+	}
+}
+
+// MARK: - Status cards
+
+struct StatusGrid: View {
+	@ObservedObject var dataManager: DataManager
+
+	private var items: [(icon: String, label: String, value: String)] {
+		let s = dataManager.appData.carData?.carStatus
+		let soh = s?.batHealth ?? ""
+		let cabin = s?.interiorTemperature ?? ""
+		let batT = s?.batAvgTemp ?? ""
+		let vol = s?.lowBatVol ?? ""
+		return [
+			("heart.fill", "电池健康", soh.isEmpty ? "--" : "\(soh)%"),
+			("thermometer.medium", "车内温度", cabin.isEmpty ? "--" : "\(cabin)°C"),
+			("battery.100", "电池均温", batT.isEmpty ? "--" : "\(batT)°C"),
+			("car.battery.bolt", "12V电压", vol.isEmpty ? "--" : "\(vol)V")
+		]
+	}
+
+	private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+	var body: some View {
+		LazyVGrid(columns: columns, spacing: 10) {
+			ForEach(items, id: \.label) { item in
+				HStack(spacing: 10) {
+					Image(systemName: item.icon)
+						.font(.system(size: 15))
+						.foregroundColor(Color(hex: 0x64D2FF))
+						.frame(width: 22)
+					VStack(alignment: .leading, spacing: 2) {
+						Text(item.label)
+							.font(.caption2)
+							.foregroundColor(.white.opacity(0.45))
+						Text(item.value)
+							.font(.system(size: 15, weight: .semibold, design: .rounded))
+							.foregroundColor(.white)
+					}
+					Spacer()
+				}
+				.padding(.horizontal, 12)
+				.padding(.vertical, 10)
+				.background(
+					RoundedRectangle(cornerRadius: 14)
+						.fill(Color.white.opacity(0.07))
+				)
+			}
+		}
+	}
+}
+
+// MARK: - Door / window chips
+
+struct VehicleStateChips: View {
+	@ObservedObject var dataManager: DataManager
+
+	private var chips: [(String, Bool)] {
+		let s = dataManager.appData.carData?.carStatus
+		let doorOpen = (s?.doorOpenStatus ?? "0") != "0"
+			|| (s?.door1OpenStatus ?? "0") != "0"
+			|| (s?.door2OpenStatus ?? "0") != "0"
+			|| (s?.door3OpenStatus ?? "0") != "0"
+			|| (s?.door4OpenStatus ?? "0") != "0"
+		let locked = (s?.doorLockStatus ?? "0") == "0"
+		let windowClosed = (s?.windowStatus ?? "0") == "0"
+			&& (s?.window1Status ?? "0") == "0"
+			&& (s?.window2Status ?? "0") == "0"
+			&& (s?.window3Status ?? "0") == "0"
+			&& (s?.window4Status ?? "0") == "0"
+		let tailClosed = (s?.tailDoorOpenStatus ?? "0") == "0"
+		return [
+			(locked ? "车门已锁" : "车门未锁", locked),
+			(doorOpen ? "车门有开启" : "车门全关", !doorOpen),
+			(windowClosed ? "车窗全关" : "车窗有开", windowClosed),
+			(tailClosed ? "尾门关闭" : "尾门开启", tailClosed)
+		]
+	}
+
+	var body: some View {
+		HStack(spacing: 8) {
+			ForEach(chips, id: \.0) { chip in
+				HStack(spacing: 5) {
+					Circle()
+						.fill(chip.1 ? Color(hex: 0x30D158) : Color.orange)
+						.frame(width: 6, height: 6)
+					Text(chip.0)
+						.font(.caption2)
+						.foregroundColor(.white.opacity(0.75))
+				}
+				.padding(.horizontal, 9)
+				.padding(.vertical, 7)
+				.background(Color.white.opacity(0.08))
+				.clipShape(Capsule())
+			}
+			Spacer(minLength: 0)
+		}
+	}
+}
+
+// MARK: - BLE control section
+
+struct ControlSection: View {
+	@ObservedObject var bt: BluetoothManager
+	@State private var isLocked = true
+
+	private var bleReady: Bool {
+		if case .connected = bt.state { return true }
+		return false
+	}
+
+	var body: some View {
+		VStack(spacing: 14) {
+			HStack(spacing: 16) {
+				CircleControlButton(
+					icon: "lock.open.fill",
+					label: "解锁",
+					color: Color(hex: 0x30D158),
+					disabled: !bleReady
+				) {
+					simpleHaptic(type: .success)
+					isLocked = false
+					BluetoothManager.shared.CarUnlock()
+				}
+
+				CircleControlButton(
+					icon: "lock.fill",
+					label: "锁车",
+					color: Color(hex: 0xFF453A),
+					disabled: !bleReady
+				) {
+					simpleHaptic(type: .success)
+					isLocked = true
+					BluetoothManager.shared.CarLock()
+				}
+			}
+
+			Button(action: {
+				simpleHaptic(type: .warning)
+				BluetoothManager.shared.CarPowerOff()
+			}) {
+				Label("整车下电", systemImage: "power")
+					.font(.subheadline.weight(.semibold))
+					.foregroundColor(.white.opacity(0.85))
+					.frame(maxWidth: .infinity)
+					.padding(.vertical, 14)
+					.background(Color.white.opacity(0.08))
+					.clipShape(RoundedRectangle(cornerRadius: 16))
+			}
+			.disabled(!bleReady)
+			.opacity(bleReady ? 1.0 : 0.4)
+		}
+		.padding(.top, 4)
+	}
+}
+
+struct CircleControlButton: View {
+	let icon: String
+	let label: String
+	let color: Color
+	let disabled: Bool
+	let action: () -> Void
+
+	var body: some View {
+		Button(action: action) {
+			VStack(spacing: 8) {
+				Image(systemName: icon)
+					.font(.system(size: 26, weight: .medium))
+					.foregroundColor(disabled ? .white.opacity(0.35) : color)
+				Text(label)
+					.font(.caption.weight(.semibold))
+					.foregroundColor(disabled ? .white.opacity(0.35) : .white)
+			}
+			.frame(width: 88, height: 88)
+			.background(
+				Circle()
+					.fill(color.opacity(disabled ? 0.06 : 0.16))
+			)
+			.overlay(
+				Circle()
+					.stroke(color.opacity(disabled ? 0.15 : 0.5), lineWidth: 1.5)
+			)
+		}
+		.disabled(disabled)
+	}
+}
+
+// MARK: - Location
+
+struct CarLocationView: View {
+	var body: some View {
+		VStack(alignment: .leading, spacing: 6) {
+			Text("车辆位置")
+				.font(.caption)
+				.foregroundColor(.white.opacity(0.45))
+				.padding(.leading, 10)
+			Map(bounds: MapCameraBounds(minimumDistance: 200)) {
+				Annotation(
+					"车辆位置",
+					coordinate: GPSTool.gps84_To_Gcj02(
+						lon: Double(DataManager.shared.appData.carData?.carStatus.longitude ?? "0") ?? 0.00,
+						lat: Double(DataManager.shared.appData.carData?.carStatus.latitude ?? "0") ?? 0.00
+					) ?? CLLocationCoordinate2D(latitude: 31, longitude: 128)
+				) {
+					Image(systemName: "car.fill")
+						.foregroundStyle(.white)
+						.padding()
+						.background(.thickMaterial)
+						.clipShape(Circle())
+						.imageScale(.small)
+				}
+				.tint(.gray)
+			}
+			.mapControlVisibility(.visible)
+			.frame(minHeight: 180)
+			.clipShape(RoundedRectangle(cornerRadius: 16))
+		}
+	}
+}
+
+// MARK: - Footer
+
+struct FooterInfo: View {
+	@ObservedObject var dataManager: DataManager
+
+	var body: some View {
+		let updated = dataManager.appData.carData?.updateDate
+		Text(updated == nil ? "从未刷新 · 下拉刷新" : "数据更新于 \(updated!)")
+			.font(.caption2)
+			.foregroundColor(.white.opacity(0.35))
+	}
+}
+
+// MARK: - Helpers
+
+extension Color {
+	init(hex: UInt32, opacity: Double = 1.0) {
+		self.init(
+			.sRGB,
+			red: Double((hex >> 16) & 0xFF) / 255.0,
+			green: Double((hex >> 8) & 0xFF) / 255.0,
+			blue: Double(hex & 0xFF) / 255.0,
+			opacity: opacity
+		)
+	}
+}
+
+// MARK: - StatusState (referenced by ViewIndicator.swift)
+
 enum StatusState {
 	case ok
 	case warning(issues: [String])
 	case error(issues: [String])
-	
+
 	var iconName: String {
 		switch self {
 		case .ok: return "checkmark"
@@ -69,7 +517,7 @@ enum StatusState {
 		case .error: return "xmark"
 		}
 	}
-	
+
 	var color: Color {
 		switch self {
 		case .ok: return .green
@@ -77,7 +525,7 @@ enum StatusState {
 		case .error: return .red
 		}
 	}
-	
+
 	var title: String {
 		switch self {
 		case .ok: return "车辆状态正常"
@@ -87,413 +535,8 @@ enum StatusState {
 	}
 }
 
-// MARK: - Subviews
-
-struct CarDisplayView: View {
-	@ObservedObject private var dataManager = DataManager.shared
-
-	var body: some View {
-
-		// 1. 使用 ZStack 作为根容器来实现层叠效果
-		ZStack(alignment: .topLeading) {  // 默认对齐方式设为左上
-//			// 文字层 (VStack)
-//			VStack(alignment: .leading, spacing: -20) {
-//				Text("ALL")
-//				Text("GOOD")
-//			}
-//			// 将字体样式统一应用到 VStack，它会自动传递给内部的 Text
-//			.font(
-//				.system(size: 75, weight: .heavy, design: .default)
-//			)
-//			.frame(maxWidth: .infinity, alignment: .leading)  // 确保 VStack 在 ZStack 内靠左
-
-			// 图片层：优先加载服务器返回的本车图片，失败回退内置图
-			if let url = URL(string: dataManager.appData.carData?.carInfo.image ?? "") {
-				AsyncImage(url: url) { phase in
-					switch phase {
-					case .success(let image):
-						image
-							.resizable()
-							.scaledToFit()
-					case .failure:
-						Image("EQ100")
-							.resizable()
-							.scaledToFit()
-					default:
-						ProgressView()
-					}
-				}
-				.frame(height: 300)
-				.frame(
-					maxWidth: .infinity,
-					maxHeight: .infinity,
-					alignment: .bottom
-				)
-			} else {
-				Image("EQ100")  // 确保你的项目中有名为 "EQ100" 的图片资源
-					.resizable()
-					.scaledToFit()
-					.frame(height: 300)  // 给图片一个合适的尺寸
-					.frame(
-						maxWidth: .infinity,
-						maxHeight: .infinity,
-						alignment: .bottom
-					)
-			}
-			Color.clear.frame(height: 240)
-		}
-	}
-}
-
-struct InfoIndicator: View {
-	let state: StatusState
-	
-	@State private var isShowingDetail = false // 控制详情弹窗的显示
-	
-	var body: some View {
-		if #available(iOS 26.0, *) {
-			Button(action: {
-				isShowingDetail.toggle()
-			}) {
-				Image(systemName: state.iconName)
-					.font(.system(size: 24, weight: .bold))
-					.foregroundColor(state.color)
-					.frame(width: 50, height: 50)
-			}
-			.popover(isPresented: $isShowingDetail, attachmentAnchor: .point(.leading), arrowEdge: .trailing) {
-				StatusDetailView(state: state)
-					.presentationCompactAdaptation(.popover)
-					.presentationBackgroundInteraction(.enabled)
-					.presentationCornerRadius(100)
-			}
-		} else {
-			Button(action: {
-				isShowingDetail.toggle()
-			}) {
-				Image(systemName: state.iconName)
-					.font(.system(size: 24, weight: .bold))
-					.foregroundColor(state.color)
-					.frame(width: 50, height: 50)
-			}
-			.shadow(radius: 5)
-			.popover(isPresented: $isShowingDetail, arrowEdge: .top) {
-				StatusDetailView(state: state)
-					.presentationCompactAdaptation(.popover)
-			}
-		}
-	}
-}
-
-struct HeaderView: View {
-	@Binding var isConnected: Bool
-	@State private var scanningTask: Task<Void, Error>?
-	@ObservedObject var bluetoothManager = BluetoothManager.shared
-	
-	private func startScanningLoop() {
-		// 防止重复创建任务
-		guard scanningTask == nil else { return }
-		
-		loggerView.debug("ble scan task started")
-		
-		scanningTask = Task.detached {
-			while !Task.isCancelled {
-				BluetoothManager.shared.startScan()
-				try await Task.sleep(for: .seconds(9))
-			}
-			loggerView.debug("ble scan task ended")
-		}
-	}
-	
-	private func stopScanningLoop() {
-		loggerView.debug("ble scan task ending")
-		scanningTask?.cancel()
-		scanningTask = nil
-	}
-	
-	private var indicatorColor: Color {
-		switch bluetoothManager.state {
-		case .disconnected, .unknown:
-			return .red
-		case .scanning:
-			return .red
-		case .authorizing:
-			return .orange
-		case .connected:
-			return .green
-		}
-	}
-	
-	private var indicatorText: String {
-		switch bluetoothManager.state {
-		case .disconnected:
-			return "未连接"
-		case .scanning:
-			return "扫描中"
-		case .authorizing:
-			return "连接中"
-		case .connected:
-			return "已连接"
-		case .unknown:
-			return "出现错误"
-		}
-	}
-	var body: some View {
-		HStack {
-			VStack(alignment: .leading) {
-				Text(DataManager.shared.appData.carData?.carInfo.carName ?? "☁️")
-					.font(.system(size: 28, weight: .bold, design: .serif))
-					.foregroundColor(.white)
-				
-				HStack(spacing: 8) {
-					StateIndicator(indicatorColor: indicatorColor, indicatorText: indicatorText)
-						.animation(.easeInOut, value: indicatorColor)
-				}
-				.onAppear(perform: startScanningLoop)
-				.onDisappear(perform: stopScanningLoop)
-			}.padding()
-			Spacer()
-			InfoIndicator(state: .ok)
-				.padding()
-		}.onTapGesture {
-			loggerView.debug("force ble scan")
-			bluetoothManager.startScan()
-		}
-	}
-}
-
-struct StateIndicator: View {
-	let indicatorColor: Color
-	let indicatorText: String
-	
-	var body: some View {
-		HStack(spacing: 8) {
-			Circle()
-				.fill(indicatorColor) // 直接使用 color
-				.frame(width: 8, height: 8)
-				.shadow(color: indicatorColor, radius: 5)
-			
-			Text(indicatorText) // 直接使用 text
-				.font(.subheadline)
-				.foregroundColor(.gray)
-		}
-	}
-}
-
-struct PrimaryControlsView: View {
-	@Binding var isLocked: Bool
-	
-	private var controlDisabled: Bool {
-		switch BluetoothManager.shared.state {
-		case .connected:
-			return false
-		default:
-			return true
-		}
-	}
-	
-	private var shouldShowBlue: Bool {
-		loggerView.debug("\(String(describing: !controlDisabled && isLocked))")
-		return !controlDisabled && isLocked
-
-	}
-	
-	var body: some View {
-		if #available(iOS 26.0, *) {
-			HStack(spacing: 20) {
-				// 解锁按钮
-				Button(action: {
-					simpleHaptic(type: .success)
-					withAnimation { isLocked = false }
-					BluetoothManager.shared.CarUnlock()
-				}) {
-					Label("解锁", systemImage: "lock.open.fill")
-						.font(.headline)
-						.foregroundColor(.white)
-						.frame(maxWidth: .infinity)
-						.padding()
-				}
-				.disabled(controlDisabled)
-				.scaleEffect(isLocked ? 0.95 : 1.0)
-				
-				// 锁定按钮
-				Button(action: {
-					simpleHaptic(type: .success)
-					withAnimation { isLocked = true }
-					BluetoothManager.shared.CarLock()
-				}) {
-					Label("锁定", systemImage: "lock.fill")
-						.font(.headline)
-						.foregroundColor(.white)
-						.frame(maxWidth: .infinity)
-						.padding()
-				}
-				.disabled(controlDisabled)
-				.scaleEffect(shouldShowBlue ? 1.0 : 0.95)
-			}
-			.animation(.spring(), value: isLocked)
-		} else {
-			HStack(spacing: 20) {
-				// 解锁按钮
-				Button(action: {
-					withAnimation { isLocked = false }
-					simpleHaptic(type: .success)
-					BluetoothManager.shared.CarUnlock()
-				}) {
-					Label("解锁", systemImage: "lock.open.fill")
-						.font(.headline)
-						.foregroundColor(.white)
-						.frame(maxWidth: .infinity)
-						.padding()
-						.background(shouldShowBlue ? Color.clear : Color.blue)
-						.cornerRadius(20)
-				}
-				.disabled(controlDisabled)
-				.scaleEffect(shouldShowBlue ? 0.95 : 1.0)
-				
-				
-				// 锁定按钮
-				Button(action: {
-					withAnimation { isLocked = true }
-					simpleHaptic(type: .success)
-					BluetoothManager.shared.CarLock()
-				}) {
-					Label("锁定", systemImage: "lock.fill")
-						.font(.headline)
-						.foregroundColor(.white)
-						.frame(maxWidth: .infinity)
-						.padding()
-						.background(shouldShowBlue ? Color.blue : Color.clear)
-						.cornerRadius(20)
-				}
-				.disabled(controlDisabled)
-				.scaleEffect(shouldShowBlue ? 1.0 : 0.95)
-			}
-			.animation(.spring(), value: shouldShowBlue)
-		}
-	}
-}
-
-struct ActionGridView: View {
-	// 分组操作
-	let primaryActions: [(icon: String, label: String)] = [
-		("power", "下电"),
-		("headlight.low.beam.fill", "开灯"),
-		("fanblades.fill", "空调"),
-		("arrowshape.left.arrowshape.right.fill", "闪灯")
-	]
-	
-	let secondaryActions: [(icon: String, label: String)] = [
-		("car.side.rear.open.fill", "后备箱"),
-		("car.side.front.open.fill", "前备箱")
-	]
-	
-	var body: some View {
-		if #available(iOS 26.0, *) {
-			VStack(spacing: 15) {
-				// 第一组操作
-				ActionGroupView(title: "常用操作", actions: primaryActions)
-				
-				// 第二组操作
-				ActionGroupView(title: "车门控制", actions: secondaryActions)
-			}
-			.padding()
-		} else {
-			VStack(spacing: 15) {
-				// 第一组操作
-				ActionGroupView(title: "常用操作", actions: primaryActions)
-				
-				// 第二组操作
-				ActionGroupView(title: "车门控制", actions: secondaryActions)
-			}
-			.padding()
-			.background(Color.gray.opacity(0.15))
-			.cornerRadius(20)
-		}
-	}
-}
-
-struct ActionGroupView: View {
-	let title: String
-	let actions: [(icon: String, label: String)]
-	
-	private let gridColumns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-	
-	var body: some View {
-		VStack(alignment: .leading) {
-			Text(title)
-				.font(.caption)
-				.foregroundColor(.gray)
-				.padding(.leading, 10)
-			
-			LazyVGrid(columns: gridColumns, spacing: 15) {
-				ForEach(actions, id: \.label) { action in
-					Button(action: {
-						// 🚗 根据 action.label 执行相应指令
-					}) {
-						VStack(spacing: 8) {
-							Image(systemName: action.icon)
-								.font(.title2)
-							Text(action.label)
-								.font(.caption)
-						}
-						.frame(maxWidth: .infinity, minHeight: 60)
-						.foregroundColor(.white)
-					}
-				}
-			}
-		}
-	}
-}
-
-extension CLLocationCoordinate2D {
-	static let carLocation: Self = .init(
-		latitude: 40.730610,
-		longitude: -73.935242
-	)
-}
-
-struct CarLocationView: View {
-	var body: some View {
-		
-		if #available(iOS 26.0, *) {
-			VStack(alignment: .leading) {
-				Text("车辆位置")
-					.font(.caption)
-					.foregroundColor(.gray)
-					.padding(.leading, 10)
-				Map(bounds: MapCameraBounds(minimumDistance: 200)) {
-					Annotation("车辆位置", coordinate: GPSTool.gps84_To_Gcj02(lon: Double(DataManager.shared.appData.carData?.carStatus.longitude ?? "0") ?? 00.00, lat: Double(DataManager.shared.appData.carData?.carStatus.latitude ?? "0") ?? 00.00) ?? CLLocationCoordinate2D(latitude: 31, longitude: 128)){
-						Image(systemName: "car.fill")
-							.foregroundStyle(.white)
-							.padding()
-							.background(.thickMaterial)
-							.clipShape(Circle())
-							.imageScale(.small)
-					}.tint(.gray)
-				}
-				.mapControlVisibility(.visible)
-				.frame(minHeight: 200)
-				.cornerRadius(10)
-				.padding(.leading, 5)
-				.padding(.trailing, 5)
-				.padding(.bottom, 5)
-			}
-			.padding()
-		} else {
-			VStack(spacing: 15) {
-				Text("车辆位置")
-					.font(.caption)
-					.foregroundColor(.gray)
-					.padding(.leading, 10)
-			}
-			.padding()
-			.background(Color.gray.opacity(0.15))
-			.cornerRadius(20)
-		}
-	}
-}
-
 // MARK: - Preview
+
 struct CarControlsView_Previews: PreviewProvider {
 	static var previews: some View {
 		CarControlsView()
