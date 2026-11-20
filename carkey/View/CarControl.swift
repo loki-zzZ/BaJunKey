@@ -107,16 +107,39 @@ struct CarDisplayView: View {
 //			)
 //			.frame(maxWidth: .infinity, alignment: .leading)  // 确保 VStack 在 ZStack 内靠左
 
-			// 图片层 (Image)
-			Image("EQ100")  // 确保你的项目中有名为 "EQ100" 的图片资源
-				.resizable()
-				.scaledToFit()
-				.frame(height: 300)  // 给图片一个合适的尺寸
+			// 图片层：优先加载服务器返回的本车图片，失败回退内置图
+			if let url = URL(string: dataManager.appData.carData?.carInfo.image ?? "") {
+				AsyncImage(url: url) { phase in
+					switch phase {
+					case .success(let image):
+						image
+							.resizable()
+							.scaledToFit()
+					case .failure:
+						Image("EQ100")
+							.resizable()
+							.scaledToFit()
+					default:
+						ProgressView()
+					}
+				}
+				.frame(height: 300)
 				.frame(
 					maxWidth: .infinity,
 					maxHeight: .infinity,
 					alignment: .bottom
 				)
+			} else {
+				Image("EQ100")  // 确保你的项目中有名为 "EQ100" 的图片资源
+					.resizable()
+					.scaledToFit()
+					.frame(height: 300)  // 给图片一个合适的尺寸
+					.frame(
+						maxWidth: .infinity,
+						maxHeight: .infinity,
+						alignment: .bottom
+					)
+			}
 			Color.clear.frame(height: 240)
 		}
 	}
