@@ -168,6 +168,30 @@ struct TireAPIResponse: Decodable {
     let data: TireData?
 }
 
+// MARK: - 二手车到手基准（里程/车主天数从这里起算）
+enum BaselineStore {
+    static let kmKey = "baseline.km"
+    static let dateKey = "baseline.date"
+
+    /// 到手里程（km），默认 49200
+    static var baseKm: Double {
+        get {
+            let v = UserDefaults.standard.double(forKey: kmKey)
+            return v > 0 ? v : 49200
+        }
+        set { UserDefaults.standard.set(newValue, forKey: kmKey) }
+    }
+
+    /// 到手日期，默认 2026-11-19
+    static var baseDate: Date {
+        get {
+            let t = UserDefaults.standard.double(forKey: dateKey)
+            return t > 0 ? Date(timeIntervalSince1970: t) : (Calendar.current.date(from: DateComponents(year: 2026, month: 11, day: 19)) ?? Date())
+        }
+        set { UserDefaults.standard.set(newValue.timeIntervalSince1970, forKey: dateKey) }
+    }
+}
+
 // MARK: - ????屎山
 struct AppData: Codable {
 	var userData: UserData?

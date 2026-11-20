@@ -188,7 +188,7 @@ extension NetworkManager {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("accept", forHTTPHeaderField: "application/json")
         
-        if let headers = DataManager.shared.sgmwUnifiedOAuth.generateAuthenticatedHeaders() {
+        if let headers = DataManager.shared.sgmwUnifiedOAuth.generateAuthenticatedHeaders(plusGateway: endpoint.host.contains("carc.baojun.net")) {
                 for (field, value) in headers {
                     request.setValue(value, forHTTPHeaderField: field)
                 }

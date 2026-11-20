@@ -159,6 +159,8 @@ struct UserInfoView: View {
 	@State private var userid_input = ""
 	@State private var secret_input = ""
 	@State private var name_input = ""
+	@State private var baselineKmText = ""
+	@State private var baselineDate = Date()
 	
 	var canContinue:Bool {
 		if accesstoken_input.isEmpty { return false }
@@ -183,6 +185,18 @@ struct UserInfoView: View {
 								value: String(user.accessToken.prefix(10) + "...")
 									.masked(percentage: 0.7)
 							)
+							Section(header: Text("到手基准（里程/天数从这里起算）")) {
+								HStack {
+									Text("到手里程")
+									Spacer()
+									TextField("km", text: $baselineKmText)
+										.keyboardType(.decimalPad)
+										.multilineTextAlignment(.trailing)
+										.frame(width: 120)
+									Text("km").foregroundColor(.secondary)
+								}
+								DatePicker("到手日期", selection: $baselineDate, displayedComponents: .date)
+							}
 						}
 							Button{
 								DataManager.shared.logout()
@@ -256,6 +270,18 @@ struct UserInfoView: View {
 					}
 			}
 			.navigationTitle("用户信息")
+			.onAppear {
+				baselineKmText = String(format: "%.0f", BaselineStore.baseKm)
+				baselineDate = BaselineStore.baseDate
+			}
+			.onChange(of: baselineKmText) { _, newValue in
+				if let v = Double(newValue.trimmingCharacters(in: .whitespaces)), v >= 0 {
+					BaselineStore.baseKm = v
+				}
+			}
+			.onChange(of: baselineDate) { _, newValue in
+				BaselineStore.baseDate = newValue
+			}
 		}
 	}
 }

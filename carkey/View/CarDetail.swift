@@ -12,6 +12,7 @@ import SwiftUI
 struct VehicleDetailView: View {
 	@ObservedObject var dataManager = DataManager.shared
 	@State private var showVIN = false
+	@State private var showHistory = false
 
 	var body: some View {
 		ZStack {
@@ -27,8 +28,9 @@ struct VehicleDetailView: View {
 
 			ScrollView {
 				VStack(spacing: 16) {
-					VehicleHeaderCard(dataManager: dataManager, showVIN: $showVIN)
-					BatteryInfoSection(dataManager: dataManager)
+					BaselineToggleChip(showHistory: $showHistory)
+					VehicleHeaderCard(dataManager: dataManager, showVIN: $showVIN, showHistory: showHistory)
+					BatteryInfoSection(dataManager: dataManager, showHistory: showHistory)
 					TemperatureSection(dataManager: dataManager)
 					FooterInfo(dataManager: dataManager)
 					Spacer(minLength: 20)
@@ -50,11 +52,41 @@ struct VehicleDetailView: View {
 	}
 }
 
+// MARK: - 到手/历史切换
+
+struct BaselineToggleChip: View {
+	@Binding var showHistory: Bool
+
+	var body: some View {
+		Button(action: {
+			simpleImpact(style: .light)
+			withAnimation(.easeInOut(duration: 0.2)) { showHistory.toggle() }
+		}) {
+			HStack(spacing: 7) {
+				Image(systemName: showHistory ? "clock.arrow.circlepath" : "sparkles")
+					.font(.system(size: 13))
+					.foregroundColor(Color(hex: 0x64D2FF))
+				Text(showHistory ? "正在显示历史数据 · 点击切回到手数据" : "正在显示到手后数据 · 点击查看历史")
+					.font(.caption.weight(.medium))
+					.foregroundColor(.white.opacity(0.75))
+				Spacer()
+			}
+			.padding(.horizontal, 14)
+			.padding(.vertical, 10)
+			.background(
+				Capsule().fill(Color.white.opacity(0.08))
+			)
+			.overlay(Capsule().stroke(Color.white.opacity(0.12), lineWidth: 1))
+		}
+	}
+}
+
 // MARK: - 车辆头部卡片（VIN / 颜色 / 购买日期 / 车主天数）
 
 struct VehicleHeaderCard: View {
 	@ObservedObject var dataManager: DataManager
 	@Binding var showVIN: Bool
+	let showHistory: Bool
 
 	private var info: CarInfo? { dataManager.appData.carData?.carInfo }
 
@@ -62,11 +94,21 @@ struct VehicleHeaderCard: View {
 		guard let info = info else { return "--" }
 		let f = DateFormatter()
 		f.dateFormat = "yyyy年M月d日"
+		if !showHistory { return f.string(from: BaselineStore.baseDate) }
 		return f.string(from: info.purchaseDateAsDate)
 	}
 
 	private var ownerDayText: String {
 		guard let info = info else { return "--" }
+		// 到手模式：从到手日期起算；历史模式：优先用车主天数
+		if !showHistory {
+			let days = Calendar.current.dateComponents(
+				[.day],
+				from: Calendar.current.startOfDay(for: BaselineStore.baseDate),
+				to: Calendar.current.startOfDay(for: Date())
+			).day ?? 0
+			return days >= 0 ? "\(days) 天" : "--"
+		}
 		if let d = info.carOwnerDay, d > 0 { return "\(d) 天" }
 		let days = Calendar.current.dateComponents(
 			[.day],
@@ -111,12 +153,12 @@ struct VehicleHeaderCard: View {
 			.background(RoundedRectangle(cornerRadius: 14).fill(Color.white.opacity(0.06)))
 
 			HStack(spacing: 12) {
-				DetailField(label: "颜色", value: info?.colorName)
+				DetailField(label: showHistory ? "颜色" : "颜色", value: info?.colorName)
 				DetailField(label: "车牌", value: (info?.carPlate.isEmpty == false) ? info?.carPlate : "未上牌")
 			}
 			HStack(spacing: 12) {
-				DetailField(label: "购买日期", value: purchaseText)
-				DetailField(label: "车主天数", value: ownerDayText)
+				DetailField(label: showHistory ? "购买日期" : "到手日期", value: purchaseText)
+				DetailField(label: showHistory ? "车主天数" : "到手天数", value: ownerDayText)
 			}
 		}
 		.padding(18)
@@ -177,6 +219,7 @@ struct DetailSectionHeader: View {
 
 struct BatteryInfoSection: View {
 	@ObservedObject var dataManager: DataManager
+	let showHistory: Bool
 
 	private var items: [(String, String)] {
 		let s = dataManager.appData.carData?.carStatus
@@ -184,13 +227,21 @@ struct BatteryInfoSection: View {
 		let vol = s?.lowBatVol ?? ""
 		let pack = s?.leftBatteryPower ?? ""
 		let yest = s?.yesterMileage ?? ""
+		// 到手模式：行驶里程 = 当前里程 - 到手里程基准
+		let drivenText: String = {
+			guard !showHistory,
+				let raw = s?.mileage, let v = Double(raw) else {
+				return s.flatMap { st in Double(st.mileage).map { String(format: "%.0f km", $0) } } ?? "--"
+			}
+			return String(format: "%.0f km", max(0, v - BaselineStore.baseKm))
+		}()
 		return [
 			("电量", s?.batterySOCPercentage.map { "\($0)%" } ?? "--"),
 			("续航", s?.remainingMileage.map { "\($0) km" } ?? "--"),
 			("剩余电量", pack.isEmpty ? "--" : "\(pack) kWh"),
 			("健康度", soh.isEmpty ? "--" : "\(soh)%"),
 			("低压电压", vol.isEmpty ? "--" : "\(vol) V"),
-			("总里程", s.flatMap { st in Double(st.mileage).map { String(format: "%.0f km", $0) } } ?? "--"),
+			(showHistory ? "总里程" : "到手行驶", drivenText),
 			("昨日里程", yest.isEmpty ? "--" : "\(yest) km"),
 			("充电状态", (s?.vecChrgingSts == "1" || s?.charging == "1") ? "充电中" : "未充电")
 		]

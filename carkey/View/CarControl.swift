@@ -175,6 +175,7 @@ struct PlaceholderCarImage: View {
 
 struct BatteryHeroCard: View {
 	@ObservedObject var dataManager: DataManager
+	@State private var showHistoryMileage = false
 
 	private var soc: Int? {
 		dataManager.appData.carData?.carStatus.batterySOCPercentage
@@ -192,6 +193,13 @@ struct BatteryHeroCard: View {
 		return v >= 10000
 			? String(format: "%.1f 万", v / 10000)
 			: String(format: "%.0f", v)
+	}
+
+	/// 到手后行驶里程 = 当前里程 - 基准
+	private var drivenKm: String {
+		let raw = dataManager.appData.carData?.carStatus.mileage ?? ""
+		guard let v = Double(raw) else { return "--" }
+		return String(format: "%.0f", max(0, v - BaselineStore.baseKm))
 	}
 
 	var body: some View {
@@ -246,9 +254,13 @@ struct BatteryHeroCard: View {
 					.font(.caption)
 					.foregroundColor(.white.opacity(0.45))
 				Divider().overlay(Color.white.opacity(0.12))
-				Text("总里程 \(totalKm) km")
+				Text(showHistoryMileage ? "总里程 \(totalKm) km" : "到手行驶 \(drivenKm) km")
 					.font(.footnote)
 					.foregroundColor(.white.opacity(0.6))
+					.onTapGesture {
+						simpleImpact(style: .light)
+						withAnimation(.easeInOut(duration: 0.15)) { showHistoryMileage.toggle() }
+					}
 			}
 			Spacer()
 		}
