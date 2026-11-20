@@ -97,7 +97,7 @@ class SGMWUnifiedOAuth {
 	/// 生成一个包含所有认证信息的 HTTP 请求头字典，用于网络请求。
 	/// - Parameter plusGateway: 是否请求新网关 carc.baojun.net（需用「宝骏汽车+」的身份 baojun_plus）
 	/// - Returns: 一个 [String: String] 格式的请求头字典，如果未登录则返回 nil
-	public func generateAuthenticatedHeaders(plusGateway: Bool = false) -> [String: String]? { {
+	public func generateAuthenticatedHeaders(plusGateway: Bool = false) -> [String: String]? {
 
 		// 1. 调用内部方法生成动态参数 (签名, nonce, 时间戳)
 		guard
