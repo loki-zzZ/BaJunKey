@@ -14,6 +14,26 @@ let loggerNet = Logger(
 	category: "net"
 )
 
+// MARK: - 抓取状态（供界面显示错误提示）
+
+final class FetchStatus: ObservableObject {
+    static let shared = FetchStatus()
+    private init() {}
+    @Published var lastError: String?
+    @Published var successDate: Date?
+
+    func reportError(_ message: String) {
+        DispatchQueue.main.async { self.lastError = message }
+    }
+
+    func reportSuccess() {
+        DispatchQueue.main.async {
+            self.lastError = nil
+            self.successDate = Date()
+        }
+    }
+}
+
 // api请求协议
 protocol EndpointType {
     var path: String { get }
@@ -171,6 +191,7 @@ extension DataManager {
                         }
                     case .failure(let error):
 						loggerNet.error("failed to load car data: \(error)")
+                        FetchStatus.shared.reportError("网络请求失败: \(error.localizedDescription)")
                 }
             }
         }
@@ -191,6 +212,7 @@ extension DataManager {
                         }
                     case .failure(let error):
 						loggerNet.error("failed to load car key data: \(error)")
+                        FetchStatus.shared.reportError("网络请求失败: \(error.localizedDescription)")
                 }
             }
         }

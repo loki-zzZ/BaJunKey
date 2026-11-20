@@ -480,12 +480,31 @@ struct CarLocationView: View {
 
 struct FooterInfo: View {
 	@ObservedObject var dataManager: DataManager
+	@ObservedObject var fetch = FetchStatus.shared
+
+	private var timeText: String {
+		if let err = fetch.lastError { return "" }
+		if let d = fetch.successDate {
+			let f = DateFormatter()
+			f.dateFormat = "HH:mm:ss"
+			return "更新于 \(f.string(from: d))"
+		}
+		let updated = dataManager.appData.carData?.updateDate
+		return updated == nil ? "从未刷新 · 下拉刷新" : "数据更新于 \(updated!)"
+	}
 
 	var body: some View {
-		let updated = dataManager.appData.carData?.updateDate
-		Text(updated == nil ? "从未刷新 · 下拉刷新" : "数据更新于 \(updated!)")
-			.font(.caption2)
-			.foregroundColor(.white.opacity(0.35))
+		VStack(spacing: 4) {
+			if let err = fetch.lastError {
+				Text("⚠️ \(err)")
+					.font(.caption)
+					.foregroundColor(.orange)
+					.multilineTextAlignment(.center)
+			}
+			Text(timeText)
+				.font(.caption2)
+				.foregroundColor(.white.opacity(0.35))
+		}
 	}
 }
 

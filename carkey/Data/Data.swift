@@ -136,7 +136,7 @@ struct CarInfo: Codable {
     let supportBatteryIndicate, supportChargeRemain, supportChargePower, supportAvgFuel: Int
     let supportHybridMileage, supportAutoAir, supportAvgElectronFuel: Int
     let powerType: String
-    let carOwnerDay: Int
+    let carOwnerDay: Int? // 部分车型不返回此字段（如悦也PLUS）
     let supportNewCarUi: Int
     let seriesCode: String
     
@@ -211,7 +211,10 @@ extension DataManager {
 	}
 	
     func login(userName: String, accessToken: String, clientSecret: String, userID: String) {
-        let newUser = UserData(userName: userName, accessToken: accessToken, clientSecret: clientSecret, userID: userID)
+        let trim = { (s: String) -> String in
+            s.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let newUser = UserData(userName: trim(userName), accessToken: trim(accessToken), clientSecret: trim(clientSecret), userID: trim(userID))
         DispatchQueue.main.async {
 			self.appData.userData = newUser
 			loggerData.info("logged in as \(newUser.userID)")
@@ -236,6 +239,7 @@ extension DataManager {
             let apiResponse = try JSONDecoder().decode(CarKeyAPIResponse.self, from: jsonData)
             guard apiResponse.result else {
 				loggerData.error("failed to load BLE key: server returned false")
+                FetchStatus.shared.reportError("蓝牙钥匙查询被服务器拒绝")
                 return
             }
 			self.appData.carKeyData = apiResponse.data
@@ -244,6 +248,7 @@ extension DataManager {
 	        WatchSyncManager.shared.sendAppData(self.appData)
         } catch {
 			loggerData.error("failed to load BLE key: \(error)")
+            FetchStatus.shared.reportError("蓝牙钥匙数据解析失败: \(error.localizedDescription)")
         }
     }
 	
@@ -272,15 +277,18 @@ extension DataManager {
             let apiResponse = try JSONDecoder().decode(VehicleAPIResponse.self, from: jsonData)
             guard apiResponse.result else {
 				loggerData.error("API returned false")
+                FetchStatus.shared.reportError("服务器拒绝请求（token 可能无效或过期）")
                 return
             }
             DispatchQueue.main.async {
 				self.appData.carData = apiResponse.data
 				loggerData.debug("successfully load car data for \(apiResponse.data.carInfo.carTypeName)")
             }
+	        FetchStatus.shared.reportSuccess()
 	        WatchSyncManager.shared.sendAppData(self.appData)
         } catch {
 			loggerData.error("failed to parse car data json: \(error)")
+            FetchStatus.shared.reportError("数据解析失败: \(error.localizedDescription)")
         }
     }
 }
