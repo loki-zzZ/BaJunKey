@@ -152,6 +152,15 @@ struct TireData: Codable {
     let tirTemp: String?
     let lfTirPrsVal, rfTirPrsVal, lrTirPrsVal, rrTirPrsVal: String?
     let lfTirPrStat, rfTirPrStat, lrTirPrStat, rrTirPrStat: String?
+
+    /// 有效胎压值个数（用于新旧网关数据合并时择优）
+    var validPressureCount: Int {
+        let vals = [lfTirPrsVal, rfTirPrsVal, lrTirPrsVal, rrTirPrsVal]
+        return vals.filter { v in
+            guard let s = v, let d = Double(s) else { return false }
+            return d > 0
+        }.count
+    }
 }
 
 struct TireAPIResponse: Decodable {
@@ -267,7 +276,8 @@ extension DataManager {
     }
 	
     /// 从JSON加载并更新胎压数据（部分车型不支持，解析失败静默处理）
-    func loadTireData(from jsonString: String) {
+    /// merge=true 时：新网关数据与已有数据对比，只有数据更全才覆盖
+    func loadTireData(from jsonString: String, merge: Bool = false) {
         guard let jsonData = jsonString.data(using: .utf8) else { return }
         do {
             let apiResponse = try JSONDecoder().decode(TireAPIResponse.self, from: jsonData)
@@ -276,8 +286,13 @@ extension DataManager {
                 return
             }
             DispatchQueue.main.async {
+                if merge, let old = self.appData.tireData,
+                   old.validPressureCount >= tire.validPressureCount {
+                    loggerData.debug("tire merge: keep old (\(old.validPressureCount)) vs new (\(tire.validPressureCount))")
+                    return
+                }
                 self.appData.tireData = tire
-                loggerData.debug("tire pressure loaded")
+                loggerData.debug("tire pressure loaded (\(tire.validPressureCount)/4)")
             }
         } catch {
             loggerData.error("failed to parse tire data (车型可能不支持): \(error.localizedDescription)")

@@ -39,6 +39,12 @@ protocol EndpointType {
     var path: String { get }
     var method: String { get }
     var body: [String: Any]? { get }
+    var host: String { get }
+}
+
+extension EndpointType {
+    /// 默认旧网关；个别接口（如胎压新网关）在具体 endpoint 里覆盖
+    var host: String { "https://openapi.baojun.net" }
 }
 
 enum BaojunEndpoint {
@@ -48,8 +54,9 @@ enum BaojunEndpoint {
     // 一个带有请求体的 POST 接口，例如发送车辆控制命令
     case queryBleKey(vin: String, userId: String)
     
-    // 胎压查询
+    // 胎压查询（旧/新双网关双保险）
     case queryTirePressure(vin: String)
+    case queryTirePressurePlus(vin: String)
     
     // 云端控制：闪灯寻车 / 启动点火授权
     case controlSearchCar(vin: String)
@@ -65,6 +72,8 @@ extension BaojunEndpoint: EndpointType {
             return "/junApi/sgmw/car/control/ble/key/query"
         case .queryTirePressure:
             return "/junApi/sgmw/car/info/tire/pressure"
+        case .queryTirePressurePlus:
+            return "/sgmw/car/info/tire/pressure"
         case .controlSearchCar:
             return "/junApi/sgmw/car/control/searchCar"
         case .controlIgnitionAuth:
@@ -72,12 +81,22 @@ extension BaojunEndpoint: EndpointType {
         }
     }
     
+    // 接口主机
+    var host: String {
+        switch self {
+        case .queryTirePressurePlus:
+            return "https://carc.baojun.net"
+        default:
+            return "https://openapi.baojun.net"
+        }
+    }
+
     // 接口的 HTTP 方法
     var method: String {
         switch self {
         case .queryDefaultCarStatus:
             return "POST"
-        case .queryBleKey, .queryTirePressure, .controlSearchCar, .controlIgnitionAuth:
+        case .queryBleKey, .queryTirePressure, .queryTirePressurePlus, .controlSearchCar, .controlIgnitionAuth:
             return "POST"
         }
     }
@@ -90,6 +109,8 @@ extension BaojunEndpoint: EndpointType {
         case .queryBleKey(let vin, let userId):
             return ["vin": vin, "userId": userId]
         case .queryTirePressure(let vin), .controlSearchCar(let vin), .controlIgnitionAuth(let vin):
+            return ["vin": vin]
+        case .queryTirePressurePlus(let vin):
             return ["vin": vin]
         }
     }
@@ -155,8 +176,7 @@ extension NetworkManager {
     // 参数 url: URL，请求的 URL 地址
     // 参数 completion: @escaping (Result<Data, Error>) -> Void，请求完成后的回调
     func requestBaojun(_ endpoint: EndpointType, completion: @escaping (Result<Data, Error>) -> Void) {
-        guard let baseURL = URL(string: "https://openapi.baojun.net"),
-                      let url = URL(string: baseURL.absoluteString + endpoint.path) else {
+        guard let url = URL(string: endpoint.host + endpoint.path) else {
                     let error = NSError(domain: "NetworkManager", code: 0, userInfo: [NSLocalizedDescriptionKey: "Invalid URL"])
                     completion(.failure(error))
                     return
@@ -248,6 +268,7 @@ extension DataManager {
 
     func fetchAndLoadTireData() {
         guard let vin = DataManager.shared.appData.carData?.carInfo.vin, !vin.isEmpty else { return }
+        // 旧网关
         NetworkManager.shared.requestBaojun(BaojunEndpoint.queryTirePressure(vin: vin)) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -256,7 +277,20 @@ extension DataManager {
                         self?.loadTireData(from: responseString)
                     }
                 case .failure(let error):
-                    loggerNet.error("failed to load tire data: \(error)")
+                    loggerNet.error("failed to load tire data (old gw): \(error)")
+                }
+            }
+        }
+        // 新网关双保险：哪份数据全用哪份
+        NetworkManager.shared.requestBaojun(BaojunEndpoint.queryTirePressurePlus(vin: vin)) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let data):
+                    if let responseString = String(data: data, encoding: .utf8) {
+                        self?.loadTireData(from: responseString, merge: true)
+                    }
+                case .failure(let error):
+                    loggerNet.error("failed to load tire data (new gw): \(error)")
                 }
             }
         }

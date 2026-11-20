@@ -425,6 +425,7 @@ struct TireWheelCell: View {
 	let stat: String
 
 	private var color: Color {
+		if pressure == "--" { return .white.opacity(0.35) }
 		switch stat {
 		case "0": return Color(hex: 0x30D158)
 		case "1": return .orange
